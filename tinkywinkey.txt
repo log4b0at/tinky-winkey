@@ -1,0 +1,20 @@
+  _______ _       _           __          ___       _              
+ |__   __(_)     | |          \ \        / (_)     | |             
+    | |   _ _ __ | | ___   _   \ \  /\  / / _ _ __ | | _____ _   _ 
+    | |  | | '_ \| |/ / | | |   \ \/  \/ / | | '_ \| |/ / _ \ | | |
+    | |  | | | | |   <| |_| |    \  /\  /  | | | | |   <  __/ |_| |
+    |_|  |_|_| |_|_|\_\\__, |     \/  \/   |_|_| |_|_|\_\___|\__, |
+                        __/ |                                 __/ |
+                       |___/                                 |___/ 
+
+Description:
+ 	Command-line tool that controls the tinky service.
+
+Usage:
+	svc [command]
+
+	[command]
+	  install - Install tinky on the system
+	  start
+	  stop
+	  delete

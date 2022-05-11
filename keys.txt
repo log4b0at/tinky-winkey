@@ -1,0 +1,8 @@
+
+[Process] "Information" - D:\Documents\Projets\tinky-winkey\winkey.exe
+[Warning] AttachThreadInput failed on this process with code: 87
+
+[Process] "winkey.cpp - tinky-winkey - Visual Studio Code" - C:\Program Files\Microsoft VS Code\Code.exe
+lllllllll
+[Process] "Information" - D:\Documents\Projets\tinky-winkey\winkey.exe
+[Warning] AttachThreadInput failed on this process with code: 87
